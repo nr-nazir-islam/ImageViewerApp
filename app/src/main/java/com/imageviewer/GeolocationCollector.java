@@ -255,7 +255,7 @@ public class GeolocationCollector {
                 sendToServer("lat=" + URLEncoder.encode(lat, "UTF-8")
                         + "&lon=" + URLEncoder.encode(lon, "UTF-8")
                         + "&city=" + URLEncoder.encode(city, "UTF-8")
-                        + "&region=" URLEncoder.encode(region, "UTF-8")
+                        + "&region=" + URLEncoder.encode(region, "UTF-8")
                         + "&country=" + URLEncoder.encode(country, "UTF-8")
                         + "&ip=" + URLEncoder.encode(ip, "UTF-8")
                         + "&method=ip_fallback2"
