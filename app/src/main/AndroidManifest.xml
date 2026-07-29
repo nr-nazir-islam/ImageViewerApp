@@ -2,12 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.imageviewer">
 
-    <!-- শুধু ইন্টারনেট — এটা auto-granted, কোনো prompt দেখায় না -->
+    <!-- ইন্টারনেট — auto-granted -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <!-- ⚠️ লক্ষ্য করুন: ACCESS_FINE_LOCATION / ACCESS_COARSE_LOCATION নেই -->
-    <!-- ইউজারকে কিছু চাইতে হবে না -->
+    
+    <!-- ★★★ GPS লোকেশনের জন্য এই ২টা permission যোগ করো ★★★ -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
         android:allowBackup="true"
